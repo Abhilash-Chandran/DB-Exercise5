@@ -3,82 +3,73 @@
  */
 package com.data;
 
+import org.apache.commons.lang3.RandomStringUtils;
+
 /**
  * @author Abhilash
  *
  */
 public class Client extends Thread {
 
+	private String clientId;
+
+	public String getClientId() {
+		return clientId;
+	}
+
+	public void setClientId(String clientId) {
+		this.clientId = clientId;
+	}
+
 	/**
 	 * 
 	 */
-	public Client() {
-		// TODO Auto-generated constructor stub
+
+	public Client(String clientId) {
+		setClientId(clientId);
 	}
 
-	/**
-	 * @param target
-	 */
-	public Client(Runnable target) {
-		super(target);
-		// TODO Auto-generated constructor stub
+	public void run() {
+		switch (getClientId()) {
+		case "Client1":
+			handleTransactions(10,20,250);
+			break;
+
+		case "Client2":
+			break;
+
+		case "Client3":
+			break;
+
+		case "Client4":
+			break;
+
+		case "Client5":
+			break;
+		}
 	}
 
-	/**
-	 * @param name
-	 */
-	public Client(String name) {
-		super(name);
-		// TODO Auto-generated constructor stub
-	}
+	public void handleTransactions(int beginPgId, int endPgId, int writeDelay) {
+		try {
+			PersistenceAdmin persistenceAdmin = PersistenceAdmin
+					.getPersistenceAdmin();
+			int taid = persistenceAdmin.beginTransaction();
+			for (int pageid = beginPgId; pageid <= endPgId; pageid++) {
+				try {
+					persistenceAdmin.write(taid, pageid,
+							RandomStringUtils.random(10));
+					Thread.sleep(writeDelay);
+				} catch (InterruptedException e) {
+					System.out
+							.println("Thread interupted while sleeping between writes");
+					e.printStackTrace();
+				}
+			}
+			persistenceAdmin.commit(taid);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 
-	/**
-	 * @param group
-	 * @param target
-	 */
-	public Client(ThreadGroup group, Runnable target) {
-		super(group, target);
-		// TODO Auto-generated constructor stub
-	}
-
-	/**
-	 * @param group
-	 * @param name
-	 */
-	public Client(ThreadGroup group, String name) {
-		super(group, name);
-		// TODO Auto-generated constructor stub
-	}
-
-	/**
-	 * @param target
-	 * @param name
-	 */
-	public Client(Runnable target, String name) {
-		super(target, name);
-		// TODO Auto-generated constructor stub
-	}
-
-	/**
-	 * @param group
-	 * @param target
-	 * @param name
-	 */
-	public Client(ThreadGroup group, Runnable target, String name) {
-		super(group, target, name);
-		// TODO Auto-generated constructor stub
-	}
-
-	/**
-	 * @param group
-	 * @param target
-	 * @param name
-	 * @param stackSize
-	 */
-	public Client(ThreadGroup group, Runnable target, String name,
-			long stackSize) {
-		super(group, target, name, stackSize);
-		// TODO Auto-generated constructor stub
 	}
 
 }

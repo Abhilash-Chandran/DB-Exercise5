@@ -2,7 +2,9 @@ package com.data;
 
 import java.io.File;
 import java.io.FileWriter;
+import java.util.ArrayList;
 import java.util.Hashtable;
+import java.util.List;
 
 /**
  * @author Abhilash
@@ -23,17 +25,28 @@ public class PersistenceAdmin {
 	 * This buffer holds the committed/uncommitted data which is filled in the
 	 * write() method.
 	 */
-	private Hashtable<String, String> datBuff;
+	private Hashtable<Integer, String> datBuff;
 
 	/**
 	 * This buffer will hold the committed transaction id's
 	 */
-	private Hashtable<String, String> commitBuffer;
+	private Hashtable<Integer, List<Integer>> trnPgBuffer;
+
+	private List<Integer> commitTrns;
 
 	static {
 		persistenceAdmin = new PersistenceAdmin();
-		persistenceAdmin.setDatBuff(new Hashtable<String, String>());
-		persistenceAdmin.commitBuffer = new Hashtable<String, String>();
+		persistenceAdmin.setDatBuff(new Hashtable<Integer, String>());
+		persistenceAdmin.trnPgBuffer = new Hashtable<Integer, List<Integer>>();
+		persistenceAdmin.setCommitTrns(new ArrayList<Integer>());
+	}
+
+	public List<Integer> getCommitTrns() {
+		return commitTrns;
+	}
+
+	public void setCommitTrns(List<Integer> commitTrns) {
+		this.commitTrns = commitTrns;
 	}
 
 	/**
@@ -63,15 +76,15 @@ public class PersistenceAdmin {
 		return persistenceAdmin;
 	}
 
-	public Hashtable<String, String> getDatBuff() {
+	public Hashtable<Integer, String> getDatBuff() {
 		return datBuff;
 	}
 
-	public void setDatBuff(Hashtable<String, String> datBuff) {
+	public void setDatBuff(Hashtable<Integer, String> datBuff) {
 		this.datBuff = datBuff;
 	}
 
-	public int beginTransaction() {
+	public synchronized int beginTransaction() {
 		return getNewTransId();
 	}
 
@@ -91,26 +104,63 @@ public class PersistenceAdmin {
 	 * @param data
 	 *            - The user data.
 	 */
-	public void write(int taid, int pageid, String data) {
+	public synchronized void write(int taid, int pageid, String data) {
 
 		// get a new log sequence number
 		int logid = getNewLogSeq();
 
 		// Write the data to buffer.
-		getPersistenceAdmin().getDatBuff().put(pageid + "",
+		getPersistenceAdmin().getDatBuff().put(pageid,
 				pageid + ", " + logid + ", " + data);
+
+		// Add the page id to the corresponding transaction id. This is helpful
+		// to know what are pages to be persisted per transaction.
+		if (getPersistenceAdmin().trnPgBuffer.get(taid) == null) {
+			getPersistenceAdmin().trnPgBuffer.put(taid,
+					new ArrayList<Integer>());
+		}
+		getPersistenceAdmin().trnPgBuffer.get(taid).add(pageid);
 
 		// log the modification.
 		log(logid, pageid, taid, data);
 
 		// check for a full buffer and persist the data.
-		// to-do
+		persist();
 	}
 
+	/**
+	 * This method should automatically verify the size of the buffer and
+	 * persist the data for the committed transactions.
+	 * 
+	 */
 	public void persist() {
 		if (getDatBuff().size() > 5) {
-			for (String key : getDatBuff().keySet()) {
-				
+			List<Integer> temp = getCommitTrns();
+			for (Integer taid : temp) {
+				List<Integer> pages = getPersistenceAdmin().trnPgBuffer
+						.get(taid);
+				for (Integer pgid : pages) {
+					if (filehandler("src/com/data/user/" + pgid + ".txt",
+							getDatBuff().get(pgid))) { // persist
+						// the
+						// latest
+						// data
+						// to
+						// file.
+
+						/* Clean the buffers */
+						getPersistenceAdmin().trnPgBuffer.get(taid)
+								.remove(pgid);
+						getDatBuff().remove(pgid);
+					}
+				}
+
+				/* Code to clean up the buffers */
+				if (getPersistenceAdmin().trnPgBuffer.get(taid).isEmpty()) {
+					getPersistenceAdmin().trnPgBuffer.remove(taid);
+					getCommitTrns().remove(taid); // remove the old and
+													// persisted transactions.
+				}
 			}
 		}
 	}
@@ -121,8 +171,8 @@ public class PersistenceAdmin {
 	 * @param taid
 	 *            Transaction id to be stored.
 	 */
-	public void commit(int taid) {
-		getPersistenceAdmin().commitBuffer.put(taid + "", taid + "");
+	public synchronized void commit(int taid) {
+		getCommitTrns().add(taid);
 	}
 
 	/**
@@ -132,17 +182,28 @@ public class PersistenceAdmin {
 	 * @param taid
 	 */
 	public void rollback(int taid) {
-		getPersistenceAdmin().commitBuffer.remove(taid + "");
+		getPersistenceAdmin().getCommitTrns().remove(taid);
 	}
 
 	private void log(int logid, int pageid, int taid, String data) {
-		filehandler("/log/" + logid, logid + ", " + taid + ", " + ", " + pageid
-				+ ", " + data);
+		filehandler("src/com/data/log/"+ logid +".txt", logid + ", " + taid + ", " + ", "
+				+ pageid + ", " + data);
 	}
 
+	/**
+	 * This method will be used to both save the user data or the log entry to
+	 * the file specified by fileName with the text as provided in fileContent.
+	 * 
+	 * @param fileName
+	 *            Name of the file to be written.
+	 * @param fileContent
+	 *            - Content to be inserted into the file.
+	 * @return
+	 */
 	private boolean filehandler(String fileName, String fileContent) {
 		try {
 			File file = new File(fileName);
+			System.out.println(file.getAbsolutePath());
 			file.createNewFile();
 			FileWriter fileWriter = new FileWriter(file);
 			fileWriter.write(fileContent);
