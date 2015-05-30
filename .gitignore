@@ -41,3 +41,8 @@ $RECYCLE.BIN/
 Network Trash Folder
 Temporary Items
 .apdisk
+
+#Eclipse Projects
+bin/
+src/com/data/user/
+src/com/data/log/

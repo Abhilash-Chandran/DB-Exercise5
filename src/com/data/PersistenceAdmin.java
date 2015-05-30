@@ -19,7 +19,7 @@ public class PersistenceAdmin {
 	private int transId = 0;
 
 	// Unique log sequence number.
-	private int logSeq = 0;
+	private int logSeq = 1000;
 
 	/**
 	 * This buffer holds the committed/uncommitted data which is filled in the
@@ -28,25 +28,39 @@ public class PersistenceAdmin {
 	private Hashtable<Integer, String> datBuff;
 
 	/**
-	 * This buffer will hold the committed transaction id's
+	 * This buffer will hold the un-committed transaction id's
 	 */
 	private Hashtable<Integer, List<Integer>> trnPgBuffer;
 
-	private List<Integer> commitTrns;
+	/**
+	 * Holds the committed transactions along with the corresponding pages.
+	 */
+	private Hashtable<Integer, List<Integer>> commTrnPgBuffer;
 
 	static {
 		persistenceAdmin = new PersistenceAdmin();
 		persistenceAdmin.setDatBuff(new Hashtable<Integer, String>());
 		persistenceAdmin.trnPgBuffer = new Hashtable<Integer, List<Integer>>();
-		persistenceAdmin.setCommitTrns(new ArrayList<Integer>());
+		persistenceAdmin
+				.setCommTrnPgBuffer(new Hashtable<Integer, List<Integer>>());
+		persistenceAdmin.cleanAllFiles("user");
+		persistenceAdmin.cleanAllFiles("log");
+	}
+	
+	public void cleanAllFiles(String dirName){
+		File dir = new File("src/com/data/"+dirName);
+		for(File file:dir.listFiles()){
+			file.delete();
+		}
 	}
 
-	public List<Integer> getCommitTrns() {
-		return commitTrns;
+	public synchronized Hashtable<Integer, List<Integer>> getCommTrnPgBuffer() {
+		return commTrnPgBuffer;
 	}
 
-	public void setCommitTrns(List<Integer> commitTrns) {
-		this.commitTrns = commitTrns;
+	public synchronized void setCommTrnPgBuffer(
+			Hashtable<Integer, List<Integer>> commTrnPgBuffer) {
+		this.commTrnPgBuffer = commTrnPgBuffer;
 	}
 
 	/**
@@ -133,34 +147,32 @@ public class PersistenceAdmin {
 	 * persist the data for the committed transactions.
 	 * 
 	 */
-	public void persist() {
+	public synchronized void persist() {
 		if (getDatBuff().size() > 5) {
-			List<Integer> temp = getCommitTrns();
-			for (Integer taid : temp) {
-				List<Integer> pages = getPersistenceAdmin().trnPgBuffer
-						.get(taid);
+			Hashtable<Integer, List<Integer>> temp = getCommTrnPgBuffer();
+			for (Integer taid : temp.keySet()) {
+				List<Integer> pages = temp.get(taid);
 				for (Integer pgid : pages) {
-					if (filehandler("src/com/data/user/" + pgid + ".txt",
-							getDatBuff().get(pgid))) { // persist
-						// the
-						// latest
-						// data
-						// to
-						// file.
+					try {
+						if (filehandler("src/com/data/user/" + pgid + ".txt",
+								getDatBuff().get(pgid))) { // persist
+							// the latest data to file.
 
-						/* Clean the buffers */
-						getPersistenceAdmin().trnPgBuffer.get(taid)
-								.remove(pgid);
-						getDatBuff().remove(pgid);
+							/* Clean the buffers */
+							//getCommTrnPgBuffer().get(taid).remove(pgid);
+							getDatBuff().remove(pgid);
+						}
+					} catch (Exception e) {
+						e.printStackTrace();
 					}
 				}
 
-				/* Code to clean up the buffers */
-				if (getPersistenceAdmin().trnPgBuffer.get(taid).isEmpty()) {
-					getPersistenceAdmin().trnPgBuffer.remove(taid);
-					getCommitTrns().remove(taid); // remove the old and
-													// persisted transactions.
-				}
+				/* Code to clean up the buffers. Currently not working due to concurrency issue of List. */
+				//if (getCommTrnPgBuffer().get(taid).isEmpty()) {
+					getCommTrnPgBuffer().remove(taid); // remove the old and
+														// persisted
+														// transactions.
+				//}
 			}
 		}
 	}
@@ -172,7 +184,10 @@ public class PersistenceAdmin {
 	 *            Transaction id to be stored.
 	 */
 	public synchronized void commit(int taid) {
-		getCommitTrns().add(taid);
+		getCommTrnPgBuffer().put(taid,
+				getPersistenceAdmin().trnPgBuffer.get(taid));
+		getPersistenceAdmin().trnPgBuffer.remove(taid);
+		persist();
 	}
 
 	/**
@@ -182,12 +197,12 @@ public class PersistenceAdmin {
 	 * @param taid
 	 */
 	public void rollback(int taid) {
-		getPersistenceAdmin().getCommitTrns().remove(taid);
+		// getPersistenceAdmin().getCommitTrns().remove(taid);
 	}
 
 	private void log(int logid, int pageid, int taid, String data) {
-		filehandler("src/com/data/log/"+ logid +".txt", logid + ", " + taid + ", " + ", "
-				+ pageid + ", " + data);
+		filehandler("src/com/data/log/" + logid + ".txt", logid + ", " + taid
+				+ ", " + ", " + pageid + ", " + data);
 	}
 
 	/**
@@ -200,10 +215,9 @@ public class PersistenceAdmin {
 	 *            - Content to be inserted into the file.
 	 * @return
 	 */
-	private boolean filehandler(String fileName, String fileContent) {
+	private synchronized boolean filehandler(String fileName, String fileContent) {
 		try {
 			File file = new File(fileName);
-			System.out.println(file.getAbsolutePath());
 			file.createNewFile();
 			FileWriter fileWriter = new FileWriter(file);
 			fileWriter.write(fileContent);
