@@ -46,3 +46,4 @@ Temporary Items
 bin/
 src/com/data/user/
 src/com/data/log/
+.class
