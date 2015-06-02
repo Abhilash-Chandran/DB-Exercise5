@@ -19,14 +19,15 @@ public class Client extends Thread {
 
 	private int writeDelay;
 
-	private int overwrite;
-	
-	public int getOverwrite() {
-		return overwrite;
+	/** A varable to control, no of transactions for each client. */
+	private int noOfTransations;
+
+	public int getNoOfTransations() {
+		return noOfTransations;
 	}
 
-	public void setOverwrite(int overwrite) {
-		this.overwrite = overwrite;
+	public void setNoOfTransations(int noOfTransations) {
+		this.noOfTransations = noOfTransations;
 	}
 
 	public int getBeginPgId() {
@@ -65,17 +66,20 @@ public class Client extends Thread {
 	 * 
 	 */
 
-	public Client(String clientId, int beginPgId, int endPgId, int writeDelay,int overwrite) {
+	public Client(String clientId, int beginPgId, int endPgId, int writeDelay,
+			int noOfTransations) {
 		setClientId(clientId);
 		setBeginPgId(beginPgId);
 		setEndPgId(endPgId);
 		setWriteDelay(writeDelay);
-		setOverwrite(overwrite);
+		setNoOfTransations(noOfTransations);
 	}
 
 	public void run() {
 		int loop = 0;
-		while (loop < getOverwrite()) {// Continuously execute multiple transactions for each clients.
+		while (loop < getNoOfTransations()) {// Continuously execute multiple
+												// transactions for each
+												// clients.
 			try {
 				PersistenceAdmin persistenceAdmin = PersistenceAdmin
 						.getPersistenceAdmin();
@@ -86,9 +90,19 @@ public class Client extends Thread {
 								RandomStringUtils.randomAlphanumeric(15));
 						Thread.sleep(writeDelay);
 					} catch (InterruptedException e) {
+						System.out.println(getClientId()
+								+ " is interupted executing transactions.");
+						if (!getClientId().equals("Client3")) {
+							return;
+						}
+
 						System.out
-								.println("Thread interupted while sleeping between writes");
-						e.printStackTrace();
+								.println("Simulating a databuffer over write for "
+										+ getClientId());
+						// reset the pageid, simulate to over write. :)
+						pageid = getBeginPgId();
+						taid = persistenceAdmin.beginTransaction();
+						continue;
 					}
 				}
 				persistenceAdmin.commit(taid);
@@ -97,6 +111,6 @@ public class Client extends Thread {
 			}
 			loop++;
 		}
-		System.out.println("Looped Commit of "+getClientId()+"is complete");
+		System.out.println("Looped Transactions of " + getClientId() + " is complete");
 	}
 }

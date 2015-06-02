@@ -1,11 +1,22 @@
 package com.data;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.List;
 
+/**
+ * @author Abhilash
+ *
+ */
+/**
+ * @author Abhilash
+ *
+ */
 /**
  * @author Abhilash
  *
@@ -43,13 +54,11 @@ public class PersistenceAdmin {
 		persistenceAdmin.trnPgBuffer = new Hashtable<Integer, List<Integer>>();
 		persistenceAdmin
 				.setCommTrnPgBuffer(new Hashtable<Integer, List<Integer>>());
-		persistenceAdmin.cleanAllFiles("user");
-		persistenceAdmin.cleanAllFiles("log");
 	}
-	
-	public void cleanAllFiles(String dirName){
-		File dir = new File("src/com/data/"+dirName);
-		for(File file:dir.listFiles()){
+
+	public void cleanAllFiles(String dirName) {
+		File dir = new File("src/com/data/" + dirName);
+		for (File file : dir.listFiles()) {
 			file.delete();
 		}
 	}
@@ -125,7 +134,7 @@ public class PersistenceAdmin {
 
 		// Write the data to buffer.
 		getPersistenceAdmin().getDatBuff().put(pageid,
-				pageid + ", " + logid + ", " + data);
+				pageid + "," + logid + "," + data);
 
 		// Add the page id to the corresponding transaction id. This is helpful
 		// to know what are pages to be persisted per transaction.
@@ -159,7 +168,7 @@ public class PersistenceAdmin {
 							// the latest data to file.
 
 							/* Clean the buffers */
-							//getCommTrnPgBuffer().get(taid).remove(pgid);
+							// getCommTrnPgBuffer().get(taid).remove(pgid);
 							getDatBuff().remove(pgid);
 						}
 					} catch (Exception e) {
@@ -167,12 +176,15 @@ public class PersistenceAdmin {
 					}
 				}
 
-				/* Code to clean up the buffers. Currently not working due to concurrency issue of List. */
-				//if (getCommTrnPgBuffer().get(taid).isEmpty()) {
-					getCommTrnPgBuffer().remove(taid); // remove the old and
-														// persisted
-														// transactions.
-				//}
+				/*
+				 * Code to clean up the buffers. Currently not working due to
+				 * concurrency issue of List.
+				 */
+				// if (getCommTrnPgBuffer().get(taid).isEmpty()) {
+				getCommTrnPgBuffer().remove(taid); // remove the old and
+													// persisted
+													// transactions.
+				// }
 			}
 		}
 	}
@@ -191,8 +203,7 @@ public class PersistenceAdmin {
 	}
 
 	/**
-	 * Roll back a transaction. As of now only removes the transaction id from
-	 * the map.
+	 * Roll back a transaction. As of now not used.
 	 * 
 	 * @param taid
 	 */
@@ -200,9 +211,21 @@ public class PersistenceAdmin {
 		// getPersistenceAdmin().getCommitTrns().remove(taid);
 	}
 
+	/**
+	 * This method is used to perform the log entry.
+	 * 
+	 * @param logid
+	 *            - log sequence number
+	 * @param pageid
+	 *            - page id
+	 * @param taid
+	 *            - transaction id
+	 * @param data
+	 *            - data itself
+	 */
 	private void log(int logid, int pageid, int taid, String data) {
-		filehandler("src/com/data/log/" + logid + ".txt", logid + ", " + taid
-				+ ", " + ", " + pageid + ", " + data);
+		filehandler("src/com/data/log/" + logid + ".txt", logid + "," + taid
+				+ "," + pageid + "," + data);
 	}
 
 	/**
@@ -226,7 +249,134 @@ public class PersistenceAdmin {
 			return true;
 		} catch (Exception e) {
 			e.printStackTrace();
+			return false;
 		}
-		return false;
+	}
+
+	/**
+	 * This method sequentially reads all the log files and corresponding page
+	 * file and performs the recovery based on the log sequence information
+	 * available.
+	 */
+	public void analyseAndRecover() {
+		try {
+			// First get a file handle for both the user and log directories.
+			File logdir = new File("src/com/data/log");
+			File userdir = new File("src/com/data/user");
+			HashMap<Integer, Integer> pageLogMap = new HashMap<Integer, Integer>();
+
+			BufferedReader buffReader;
+			// First identify the current LSN for eage pageID.
+			for (File userFile : userdir.listFiles()) {
+				buffReader = new BufferedReader(new FileReader(userFile));
+				String tmp = buffReader.readLine();
+				if (tmp != null && !tmp.isEmpty()) { // Handle empty files.
+					String[] data = tmp.split(",");
+					pageLogMap.put(Integer.valueOf(data[0]),
+							Integer.valueOf(data[1]));
+				}
+			}
+
+			/*
+			 * Identify the winner transaction/LSN for each pageid by
+			 * sequentially scanning the log files and update page and log map..
+			 */
+			System.out.println("---------------------------------------");
+			System.out.println("New Pages Created based on log entries, probably uncommitted data.");
+			System.out.println("---------------------------------------");
+			for (File logFile : logdir.listFiles()) {
+				buffReader = new BufferedReader(new FileReader(logFile));
+				String tmp = buffReader.readLine();
+				if (tmp != null && !tmp.isEmpty()) { // Handle empty files.
+					String[] data = tmp.split(",");
+					if (pageLogMap.get(Integer.valueOf(data[2])) == null) {
+						filehandler("src/com/data/user/" + data[2] + ".txt",
+								data[2] + "," + data[0] + "," + data[3]);
+						System.out.println("src/com/data/user/" + data[2] + ".txt");
+					} else if (pageLogMap.get(Integer.valueOf(data[2])) < Integer
+							.valueOf(data[0])) {
+						pageLogMap.put(Integer.valueOf(data[2]),
+								Integer.valueOf(data[0]));
+					}
+				}
+			}
+			System.out.println("---------------------------------------");
+
+			/*
+			 * Display the winner transactions and LSN for each page. And
+			 * recover the data from the log file. No need to handle empty files
+			 * because its already done in the previous map construction/winner
+			 * logic.
+			 */
+			File logfile;
+			File pageFile;
+			System.out
+					.println("------------------------------------------------------------------");
+			System.out
+					.println("PageID\t||Old Log Seq\t||Winner Log Seq||Transaction ID||Winner Found");
+			System.out
+					.println("------------------------------------------------------------------");
+			for (Integer pgid : pageLogMap.keySet()) {
+				Integer lsn = pageLogMap.get(pgid);
+
+				logfile = new File("src/com/data/log/" + lsn + ".txt");
+				pageFile = new File("src/com/data/user/" + pgid + ".txt");
+
+				buffReader = new BufferedReader(new FileReader(logfile));
+				String tmp = buffReader.readLine();
+				String[] newData = tmp.split(",");
+				buffReader = new BufferedReader(new FileReader(pageFile));
+				String[] oldData = buffReader.readLine().split(",");
+				System.out
+						.println(pgid
+								+ "\t||\t"
+								+ oldData[1]
+								+ "\t||\t"
+								+ lsn
+								+ "\t||\t"
+								+ newData[1]
+								+ "\t||\t"
+								+ ((oldData[1].trim().equals(lsn + "")) ? "NO"
+										: "YES"));
+
+				// Update the user data File with new data and log sequence.
+				String updateContent = pgid + "," + lsn + "," + newData[3];
+				filehandler("src/com/data/user/" + pgid + ".txt", updateContent);
+			}
+			System.out
+					.println("------------------------------------------------------------------");
+
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+	}
+
+	/**
+	 * This method simply prints the user data
+	 */
+	public void showUserData() {
+		File userdir = new File("src/com/data/user");
+		System.out
+				.println("---------------------------------------------------");
+		System.out.println("PageID\t|| Log Sequence\t||\tUser Data");
+		System.out
+				.println("---------------------------------------------------");
+		BufferedReader bufReader;
+		try {
+			for (File userFile : userdir.listFiles()) {
+				bufReader = new BufferedReader(new FileReader(userFile));
+				String data = bufReader.readLine();
+				if (data != null && !data.isEmpty()) { // Handle empty files.
+					String[] dataSp = data.split(",");
+					System.out.println(dataSp[0] + "\t||\t" + dataSp[1]
+							+ "\t||\t" + dataSp[2]);
+				}
+			}
+			System.out
+					.println("---------------------------------------------------");
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 	}
 }
