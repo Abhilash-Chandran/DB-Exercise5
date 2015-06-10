@@ -3,11 +3,12 @@ package com.data;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
-import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.List;
+
+import org.apache.commons.io.FileUtils;
 
 /**
  * @author Abhilash
@@ -164,7 +165,7 @@ public class PersistenceAdmin {
 				for (Integer pgid : pages) {
 					try {
 						if (filehandler("src/com/data/user/" + pgid + ".txt",
-								getDatBuff().get(pgid))) { // persist
+								getDatBuff().get(pgid),false)) { // persist
 							// the latest data to file.
 
 							/* Clean the buffers */
@@ -199,6 +200,8 @@ public class PersistenceAdmin {
 		getCommTrnPgBuffer().put(taid,
 				getPersistenceAdmin().trnPgBuffer.get(taid));
 		getPersistenceAdmin().trnPgBuffer.remove(taid);
+		// A log entry after each commit statement.
+		filehandler("src/com/data/log/log.txt", "commit," + taid,true);
 		persist();
 	}
 
@@ -224,8 +227,9 @@ public class PersistenceAdmin {
 	 *            - data itself
 	 */
 	private void log(int logid, int pageid, int taid, String data) {
-		filehandler("src/com/data/log/" + logid + ".txt", logid + "," + taid
-				+ "," + pageid + "," + data);
+		// filehandler("src/com/data/log/" + logid + ".txt", logid + "," + taid
+		filehandler("src/com/data/log/log.txt", logid + "," + taid + ","
+				+ pageid + "," + data,true);
 	}
 
 	/**
@@ -238,14 +242,16 @@ public class PersistenceAdmin {
 	 *            - Content to be inserted into the file.
 	 * @return
 	 */
-	private synchronized boolean filehandler(String fileName, String fileContent) {
+	private synchronized boolean filehandler(String fileName, String fileContent,boolean append) {
 		try {
 			File file = new File(fileName);
-			file.createNewFile();
-			FileWriter fileWriter = new FileWriter(file);
-			fileWriter.write(fileContent);
-			fileWriter.flush();
-			fileWriter.close();
+			ArrayList<String> cont = new ArrayList<>();
+			cont.add(fileContent);
+			if (!file.exists()) {
+				file.createNewFile();
+			}
+			FileUtils.writeLines(file, cont, append);
+			cont = null;
 			return true;
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -261,9 +267,10 @@ public class PersistenceAdmin {
 	public void analyseAndRecover() {
 		try {
 			// First get a file handle for both the user and log directories.
-			File logdir = new File("src/com/data/log");
+			File logdir = new File("src/com/data/log/log.txt");
 			File userdir = new File("src/com/data/user");
 			HashMap<Integer, Integer> pageLogMap = new HashMap<Integer, Integer>();
+			HashMap<Integer, String> logDataMap = new HashMap<Integer, String>();
 
 			BufferedReader buffReader;
 			// First identify the current LSN for eage pageID.
@@ -274,6 +281,7 @@ public class PersistenceAdmin {
 					String[] data = tmp.split(",");
 					pageLogMap.put(Integer.valueOf(data[0]),
 							Integer.valueOf(data[1]));
+					logDataMap.put(Integer.valueOf(data[1]), data[2]);
 				}
 			}
 
@@ -282,23 +290,30 @@ public class PersistenceAdmin {
 			 * sequentially scanning the log files and update page and log map..
 			 */
 			System.out.println("---------------------------------------");
-			System.out.println("New Pages Created based on log entries, probably uncommitted data.");
+			System.out
+					.println("New Pages Created based on log entries, probably uncommitted data.");
 			System.out.println("---------------------------------------");
-			for (File logFile : logdir.listFiles()) {
-				buffReader = new BufferedReader(new FileReader(logFile));
-				String tmp = buffReader.readLine();
-				if (tmp != null && !tmp.isEmpty()) { // Handle empty files.
+			// for (File logFile : logdir.listFiles()) {
+			buffReader = new BufferedReader(new FileReader(logdir));
+			String tmp = buffReader.readLine();
+			while (tmp != null) {
+				if (!tmp.isEmpty() && !tmp.startsWith("commit")) { // Handle
+																	// empty
+																	// files.
 					String[] data = tmp.split(",");
 					if (pageLogMap.get(Integer.valueOf(data[2])) == null) {
 						filehandler("src/com/data/user/" + data[2] + ".txt",
-								data[2] + "," + data[0] + "," + data[3]);
-						System.out.println("src/com/data/user/" + data[2] + ".txt");
+								data[2] + "," + data[0] + "," + data[3],false);
+						System.out.println("src/com/data/user/" + data[2]
+								+ ".txt");
 					} else if (pageLogMap.get(Integer.valueOf(data[2])) < Integer
 							.valueOf(data[0])) {
 						pageLogMap.put(Integer.valueOf(data[2]),
 								Integer.valueOf(data[0]));
+						logDataMap.put(Integer.valueOf(data[0]), data[3]);
 					}
 				}
+				tmp = buffReader.readLine();
 			}
 			System.out.println("---------------------------------------");
 
@@ -308,23 +323,23 @@ public class PersistenceAdmin {
 			 * because its already done in the previous map construction/winner
 			 * logic.
 			 */
-			File logfile;
+			// File logfile;
 			File pageFile;
 			System.out
 					.println("------------------------------------------------------------------");
 			System.out
-					.println("PageID\t||Old Log Seq\t||Winner Log Seq||Transaction ID||Winner Found");
+					.println("PageID\t||Old Log Seq\t||Winner Log Seq||Winner Found");
 			System.out
 					.println("------------------------------------------------------------------");
 			for (Integer pgid : pageLogMap.keySet()) {
 				Integer lsn = pageLogMap.get(pgid);
 
-				logfile = new File("src/com/data/log/" + lsn + ".txt");
+				// logfile = new File("src/com/data/log/" + lsn + ".txt");
 				pageFile = new File("src/com/data/user/" + pgid + ".txt");
 
-				buffReader = new BufferedReader(new FileReader(logfile));
-				String tmp = buffReader.readLine();
-				String[] newData = tmp.split(",");
+				// buffReader = new BufferedReader(new FileReader(logfile));
+				String newData = logDataMap.get(lsn);
+				//String[] newData = tmp1.split(",");
 				buffReader = new BufferedReader(new FileReader(pageFile));
 				String[] oldData = buffReader.readLine().split(",");
 				System.out
@@ -334,14 +349,12 @@ public class PersistenceAdmin {
 								+ "\t||\t"
 								+ lsn
 								+ "\t||\t"
-								+ newData[1]
-								+ "\t||\t"
 								+ ((oldData[1].trim().equals(lsn + "")) ? "NO"
 										: "YES"));
 
 				// Update the user data File with new data and log sequence.
-				String updateContent = pgid + "," + lsn + "," + newData[3];
-				filehandler("src/com/data/user/" + pgid + ".txt", updateContent);
+				String updateContent = pgid + "," + lsn + "," + newData;
+				filehandler("src/com/data/user/" + pgid + ".txt", updateContent,false);
 			}
 			System.out
 					.println("------------------------------------------------------------------");
